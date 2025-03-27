@@ -1,43 +1,51 @@
-name: Docker CI/CD for ECR
+name: Docker CI/CD to AWS
 
 on:
   push:
     branches:
       - main
-      - master  # Runs on push to main or master
-  pull_request:
-    branches:
-      - main
-      - master  # Runs on pull requests to main or master
+      - master
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      # 1. Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        run: |
-          docker build -t demo-service . || exit 1
-          
-
-      - name: Configure AWS Credentials
+      # 2. Configure AWS
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to AWS ECR
-        id: login-ecr
+      # 3. Login to ECR
+      - name: ECR Login
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Tag and Push to ECR
+      # 4. Build and Push
+      - name: Build and Push
         run: |
-          docker tag demo-service:latest ${{ secrets.ECR_REPOSITORY }}:latest || exit 1
-          docker push ${{ secrets.ECR_REPOSITORY }}:latest || exit 1
+          docker build -t ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }} .
+          docker push ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+          
+          # Optional: Also tag as 'latest'
+          docker tag ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }} ${{ secrets.ECR_REPOSITORY }}:latest
+          docker push ${{ secrets.ECR_REPOSITORY }}:latest
+
+      # 5. Deploy (SSH) - Only if needed
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_IP }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
+            docker stop my-app || true
+            docker rm my-app || true
+            docker run -d -p 80:8080 --name my-app ${{ secrets.ECR_REPOSITORY }}:${{ github.sha }}
