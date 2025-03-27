@@ -17,4 +17,9 @@ public class DemoController {
     public String getHelloResponse(){
         return "Hello";
     }
+
+    @GetMapping("/hi")
+    public String getHiResponse(){
+        return "Hiiiiiiiii";
+    }
 }
